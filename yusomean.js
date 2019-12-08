@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YUSoMean?
 // @version      0.1
-// @updateURL    gist.githubusercontent.com/jeznag/15f234fd22751de29eff37c958d6d3b4/raw/autofill.js
+// @updateURL    https://github.com/jeznag/yusomean/raw/master/yusomean.js
 // @description  Helps you be nicer while writing code reviews
 // @author       jeznag
 // @match        https://bitbucket.org/*/pull-requests/*
