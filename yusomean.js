@@ -6,20 +6,26 @@
 // @author       jeznag
 // @match        https://bitbucket.org/*/pull-requests/*
 // @match        https://github.com/*/pull/*
+// @match        https://app.slack.com/*
 // ==/UserScript==
 
 (function() {
   'use strict';
 
   const empathScriptTag = document.createElement('script');
-  empathScriptTag.src =
-    'https://unpkg.com/empath-sentiment-analysis/dist/empath.js';
-  document.body.appendChild(empathScriptTag);
+  try {
+      empathScriptTag.src =
+          'https://unpkg.com/empath-sentiment-analysis/dist/empath.js';
+      document.body.appendChild(empathScriptTag);
+  } catch (e) {
+      console.error(e);
+  }
 
   let waits = 0;
   let analyseSentiment;
+  let attemptsToGetFromUnpkg = 0;
   const waitForEmpathToBeReady = setInterval(() => {
-    if (location.href.includes('github')) {
+    if (location.href.includes('github') || location.href.includes('slack') || attemptsToGetFromUnpkg > 5) {
       const empathLib = window.empathForGithub.default;
       analyseSentiment = empathLib.analyseSentiment;
       clearInterval(waitForEmpathToBeReady);
@@ -28,6 +34,8 @@
         const empathLib = empath.default;
         analyseSentiment = empathLib.analyseSentiment;
         clearInterval(waitForEmpathToBeReady);
+      } else {
+          attemptsToGetFromUnpkg += 1;
       }
     }
   }, 100);
@@ -45,6 +53,12 @@
       background-color: green;
       color: white;
     }
+
+    #yusomean-feedback.nice a {
+      text-decoration: underline;
+      color: white;
+    }
+
     #yusomean-feedback.neutral {
       background-color: grey;
     }
@@ -55,6 +69,11 @@
     .small-yusomean-msg {
       font-size: 8px;
     }
+
+    .p-workspace-layout .small-yusomean-msg {
+      font-size: 15px;
+    }
+
     .yusomean-details {
       display: none;
     }
@@ -67,25 +86,29 @@
 
   let lastComment;
   function handleChangeCommentText(commentText, feedbackDiv) {
+    const feedbackMessage = feedbackDiv.querySelector('#yusomean-feedback');
+    if (commentText.trim().length === 0) {
+        feedbackMessage.innerHTML = '';
+        return;
+    }
     console.log(commentText);
     const result = analyseSentiment(commentText);
     console.log(result);
     const { score: sentimentScore, positive, negative } = result;
-    const feedbackMessage = feedbackDiv.querySelector('#yusomean-feedback');
 
-    if (sentimentScore < 0) {
-      feedbackMessage.innerHTML =
-        "<span class='yusomean-emoji'>👺</span><br/><span class='small-yusomean-msg'>Your comment comes across as pretty mean. Try rewriting it.<br/>If you think the algorithm made a mistake, please <a href='https://github.com/jeznag/empath-sentiment-analysis/issues'>raise an issue</a>.</span>";
-      feedbackMessage.className = 'mean';
-    } else if (sentimentScore === 0) {
-      feedbackMessage.innerHTML =
-        "<span class='yusomean-emoji'>😐</span><br/><span class='small-yusomean-msg'>Your comment comes across as neutral. You could rewrite it if you want to be nicer.<br/>If you think the algorithm made a mistake, please <a href='https://github.com/jeznag/empath-sentiment-analysis/issues'>raise an issue</a>.</span>";
-      feedbackMessage.className = 'neutral';
-    } else {
-      feedbackMessage.innerHTML =
-        "<span class='yusomean-emoji'>😇</span><br/><span class='small-yusomean-msg'>Your comment is really nice! <br/>If you think the algorithm made a mistake, please <a href='https://github.com/jeznag/empath-sentiment-analysis/issues'>raise an issue</a>.</span>";
-      feedbackMessage.className = 'nice';
-    }
+      if (sentimentScore < 0) {
+          feedbackMessage.innerHTML =
+              "<span class='yusomean-emoji'>👺</span><br/><span class='small-yusomean-msg'>Your comment comes across as pretty mean. Try rewriting it.<br/>If you think the algorithm made a mistake, please <a href='https://github.com/jeznag/empath-sentiment-analysis/issues'>raise an issue</a>.</span>";
+          feedbackMessage.className = 'mean';
+      } else if (sentimentScore === 0) {
+          feedbackMessage.innerHTML =
+              "<span class='yusomean-emoji'>😐</span><br/><span class='small-yusomean-msg'>Your comment comes across as neutral. You could rewrite it if you want to be nicer.<br/>If you think the algorithm made a mistake, please <a href='https://github.com/jeznag/empath-sentiment-analysis/issues'>raise an issue</a>.</span>";
+          feedbackMessage.className = 'neutral';
+      } else {
+          feedbackMessage.innerHTML =
+              "<span class='yusomean-emoji'>😇</span><br/><span class='small-yusomean-msg'>Your comment is really nice! <br/>If you think the algorithm made a mistake, please <a href='https://github.com/jeznag/empath-sentiment-analysis/issues'>raise an issue</a>.</span>";
+          feedbackMessage.className = 'nice';
+      }
 
     feedbackMessage.innerHTML += `<div class='yusomean-details'>
 <div><b>Negative Words:</b><br/> ${negative
@@ -164,12 +187,44 @@
     });
   }
 
+  function handleSlack() {
+    const commentAreas = document.querySelectorAll(
+      '[data-qa="message_input"]'
+    );
+    [...commentAreas].forEach(commentArea => {
+      if (commentArea && !textAreasBeingTracked.includes(commentArea)) {
+        textAreasBeingTracked.push(commentArea);
+
+          const handleMessageChange = (event) => {
+          const slackMessageWrapper = event.target.parentElement;
+          const slackComment = event.target.innerHTML.replaceAll('<p>', '').replaceAll('</p>', '').replaceAll(/<img data-id="([^"]*).*>/g, '$1').replaceAll('<br>', '')
+
+          console.log('slackMessage', slackComment);
+          let feedbackDiv = slackMessageWrapper.querySelector(
+            '#yusomean-feedback-wrapper'
+          );
+          if (!feedbackDiv) {
+            feedbackDiv = document.createElement('div');
+            feedbackDiv.id = 'yusomean-feedback-wrapper';
+            feedbackDiv.innerHTML = `<div id='yusomean-feedback'></div>`;
+            slackMessageWrapper.appendChild(feedbackDiv);
+          }
+          handleChangeCommentText(slackComment, feedbackDiv);
+        }
+
+        commentArea.addEventListener('keydown', handleMessageChange);
+      }
+    });
+  }
+
   const textAreasBeingTracked = [];
   setInterval(() => {
     if (location.href.includes('bitbucket')) {
       handleBitbucket();
     } else if (location.href.includes('github')) {
       handleGithub();
+    } else if (location.href.includes('slack')) {
+      handleSlack();
     }
   }, 1000);
 
@@ -387,6 +442,9 @@
               '🤦‍♀️': -5,
               '🤦‍♂️': -5,
               '☹️': -2,
+              '🙂': 2,
+              ':slightly_smiling_face:': 2,
+              ':disappointed:': -2,
               abandon: -2,
               abandoned: -2,
               abandons: -2,
